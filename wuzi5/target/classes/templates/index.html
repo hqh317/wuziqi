@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>五子棋</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<header>
+    <div th:if="${username != null}">
+        <span>欢迎, <span th:text="${username}"></span> | <a href="/logout">退出</a></span>
+    </div>
+    <div th:if="${username == null}">
+        <a href="/register">注册</a> | <a href="/login">登录</a>
+    </div>
+</header>
+
+<div class="container">
+    <h1>五子棋</h1>
+    <div class="controls">
+        <button id="resetGame">重置游戏</button>
+        <button id="toggleAIMode">AI模式: <span id="aiModeStatus">关闭</span></button>
+        <button id="pvpMode">双人对战</button>
+        <button id="saveGame" th:disabled="${username == null}">保存游戏</button>
+        <button id="loadGame" th:disabled="${username == null}">加载游戏</button>
+    </div>
+
+    <div id="gameBoard"></div>
+
+    <div id="gameRecordsModal" class="modal">
+        <div class="modal-content">
+            <h2>选择游戏记录</h2>
+            <table id="gameRecordsTable">
+                <thead>
+                <tr>
+                    <th>保存时间</th>
+                    <th>模式</th>
+                    <th>当前玩家</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+            <button id="closeModal">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/script.js"></script>
+</body>
+</html>

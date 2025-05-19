@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>注册</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .register-container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 300px;
+            text-align: center;
+        }
+        .register-container h2 {
+            margin-bottom: 20px;
+        }
+        .register-container input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .register-container button {
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .register-container button:hover {
+            background-color: #0056b3;
+        }
+        .captcha-img {
+            margin: 10px 0;
+            cursor: pointer;
+            width: 120px;
+            height: 40px;
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .login-link {
+            margin-top: 15px;
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<div class="register-container">
+    <h2>注册</h2>
+    <div id="error-message" class="error"></div>
+    <form id="register-form" method="POST" action="/register">
+        <input type="text" name="username" placeholder="用户名" required>
+        <input type="password" name="password" placeholder="密码" required>
+        <input type="text" name="captcha" placeholder="验证码" required>
+        <img id="captcha-img" class="captcha-img" src="/generateCaptcha" alt="验证码">
+        <button type="submit">注册</button>
+    </form>
+    <a href="/login" class="login-link">已有账号？立即登录</a>
+</div>
+
+<script>
+    const captchaImg = document.getElementById('captcha-img');
+    captchaImg.addEventListener('click', () => {
+        captchaImg.src = '/generateCaptcha?' + new Date().getTime();
+    });
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    const details = urlParams.get('details');
+    const errorMessage = document.getElementById('error-message');
+    if (error) {
+        switch (error) {
+            case 'captcha':
+                errorMessage.textContent = '验证码错误';
+                break;
+            case 'username_empty':
+                errorMessage.textContent = '用户名不能为空';
+                break;
+            case 'username_invalid':
+                errorMessage.textContent = '用户名只能包含字母、数字和下划线';
+                break;
+            case 'username_exists':
+                errorMessage.textContent = '用户名已存在';
+                break;
+            case 'database':
+                errorMessage.textContent = details ? `数据库错误: ${decodeURIComponent(details)}` : '数据库操作异常';
+                break;
+            default:
+                errorMessage.textContent = details ? `错误: ${decodeURIComponent(details)}` : '注册失败';
+        }
+    }
+</script>
+</body>
+</html>
