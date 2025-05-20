@@ -10,30 +10,50 @@ document.addEventListener('DOMContentLoaded', function() {
     const gameRecordsModal = document.getElementById('gameRecordsModal');
     const gameRecordsTableBody = document.querySelector('#gameRecordsTable tbody');
     const closeModalButton = document.getElementById('closeModal');
+    const spectateButton = document.getElementById('spectateButton');
+    const activeGamesModal = document.getElementById('activeGamesModal');
+    const activeGamesTableBody = document.querySelector('#activeGamesTable tbody');
+    const closeActiveGamesModal = document.getElementById('closeActiveGamesModal');
+    const spectatorMessage = document.getElementById('spectatorMessage');
+    const spectatedUserSpan = document.getElementById('spectatedUser');
+    const exitSpectatorModeButton = document.getElementById('exitSpectatorMode');
+    const listTasksButton = document.getElementById('listTasks');
+    const tasksModal = document.getElementById('tasksModal');
+    const tasksTableBody = document.querySelector('#tasksTable tbody');
+    const closeTasksModal = document.getElementById('closeTasksModal');
     let board = [];
-    let currentPlayer = 1; // Ensure Black starts first
+    let currentPlayer = 1;
     let aiMode = false;
     let gameOver = false;
+    let gameId = document.getElementById('gameId') ? document.getElementById('gameId').value : null;
+    let isSpectator = false;
+    let spectatedGameId = null;
+    let stompClient = null;
 
-    // Disable buttons for unauthenticated users
     const isAuthenticated = !document.getElementById('saveGame').hasAttribute('disabled');
+    const isAdmin = document.getElementById('isAdmin') ? document.getElementById('isAdmin').value === 'true' : false;
+
+    console.log('isAuthenticated:', isAuthenticated, 'isAdmin:', isAdmin, 'gameId:', gameId);
+
     if (!isAuthenticated) {
         console.log('User not authenticated, disabling save/load buttons');
         saveGameButton.disabled = true;
         loadGameButton.disabled = true;
         saveGameButton.title = '请先登录';
         loadGameButton.title = '请先登录';
+        listTasksButton.disabled = true;
+        listTasksButton.title = '请先登录';
     }
 
-    // Initialize board
     function initBoard(boardData) {
         console.log('Initializing board with data:', boardData);
-        if (!gameBoard) {
-            console.error('gameBoard element not found');
+        if (!gameBoard || !gameBoard.appendChild) {
+            console.error('gameBoard element not found or invalid:', gameBoard);
             return;
         }
         gameBoard.innerHTML = '';
         board = boardData || Array(15).fill().map(() => Array(15).fill('0'));
+        console.log('Board array created with dimensions:', board.length, 'x', board[0].length);
         for (let i = 0; i < 15; i++) {
             for (let j = 0; j < 15; j++) {
                 const cell = document.createElement('div');
@@ -45,44 +65,100 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else if (board[i][j] === 'O') {
                     cell.classList.add('white');
                 }
-                cell.addEventListener('click', () => makeMove(i, j));
+                console.log(`Adding cell at [${i}, ${j}], isSpectator: ${isSpectator}, isAdmin: ${isAdmin}`);
+                if (!isSpectator) {
+                    cell.addEventListener('click', () => makeMove(i, j));
+                }
                 gameBoard.appendChild(cell);
             }
         }
         console.log('Board initialized with', gameBoard.childElementCount, 'cells');
+        if (gameBoard.childElementCount !== 225) {
+            console.error('Board initialization failed: incorrect number of cells, got:', gameBoard.childElementCount);
+        } else {
+            console.log('Board initialization successful');
+        }
     }
 
-    // Make a move
-    function makeMove(row, col) {
-        if (gameOver || board[row][col] !== '0') {
-            console.log('Move blocked: gameOver=', gameOver, 'cell=', board[row][col]);
-            return;
+    function connectWebSocket(gameIdToSpectate) {
+        if (stompClient) {
+            stompClient.disconnect();
         }
+        const socket = new SockJS('/ws');
+        stompClient = Stomp.over(socket);
+        spectatedGameId = gameIdToSpectate;
+        stompClient.connect({}, function(frame) {
+            console.log('Connected to WebSocket for gameId: ' + gameIdToSpectate + ', frame: ' + frame);
+            stompClient.subscribe('/topic/game/' + gameIdToSpectate, function(message) {
+                console.log('Received message for gameId: ' + gameIdToSpectate + ', message: ' + message.body);
+                const gameState = JSON.parse(message.body);
+                board = gameState.board.map(row => [...row]);
+                currentPlayer = gameState.player;
+                gameOver = gameState.gameOver;
+                aiMode = gameState.aiMode;
+                aiModeStatus.textContent = aiMode ? '开启' : '关闭';
+                initBoard(board);
+            });
+        }, function(error) {
+            console.error('WebSocket connection error for gameId: ' + gameIdToSpectate + ', error: ' + error);
+        });
+    }
+
+    function toggleSpectatorMode(enable, username, gameIdToSpectate) {
+        isSpectator = enable;
+        console.log('Toggling spectator mode:', enable, 'for user:', username);
+        if (enable) {
+            resetGameButton.disabled = true;
+            toggleAIModeButton.disabled = true;
+            pvpModeButton.disabled = true;
+            saveGameButton.disabled = true;
+            loadGameButton.disabled = true;
+            spectateButton.disabled = true;
+            listTasksButton.disabled = true;
+            spectatorMessage.style.display = 'block';
+            spectatedUserSpan.textContent = username;
+            connectWebSocket(gameIdToSpectate);
+        } else {
+            resetGameButton.disabled = false;
+            toggleAIModeButton.disabled = false;
+            pvpModeButton.disabled = false;
+            saveGameButton.disabled = !isAuthenticated;
+            loadGameButton.disabled = !isAuthenticated;
+            spectateButton.disabled = false;
+            listTasksButton.disabled = !isAuthenticated;
+            spectatorMessage.style.display = 'none';
+            spectatedUserSpan.textContent = '';
+            if (stompClient) {
+                stompClient.disconnect();
+                stompClient = null;
+            }
+            initBoard();
+            currentPlayer = 1;
+            gameOver = false;
+            aiMode = false;
+            aiModeStatus.textContent = '关闭';
+        }
+    }
+
+    function makeMove(row, col) {
+        if (gameOver || board[row][col] !== '0' || isSpectator) return;
         console.log('Making move at row:', row, 'col:', col);
         fetch('/makeMove', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ row, col })
+            body: JSON.stringify({ row, col, gameId })
         })
-            .then(response => {
-                console.log('Move response status:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                console.log('Move response:', data);
                 if (data.success) {
-                    console.log('Setting piece at [', row, ',', col, '] to', data.piece);
-                    board[row][col] = data.piece; // Use the piece directly from the server
-                    console.log('Board state after move:', board[row][col], 'at [', row, ',', col, ']');
+                    board[row][col] = data.piece;
                     updateBoard();
                     currentPlayer = data.player;
-                    console.log('Updated currentPlayer to:', currentPlayer);
                     if (data.win) {
                         alert(`Player ${currentPlayer === 1 ? 2 : 1} wins!`);
                         gameOver = true;
                     }
                     if (data.aiRow !== undefined && data.aiCol !== undefined) {
-                        console.log('AI move at [', data.aiRow, ',', data.aiCol, '] to', 'O');
                         board[data.aiRow][data.aiCol] = 'O';
                         updateBoard();
                         currentPlayer = data.player;
@@ -98,34 +174,54 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error making move:', error));
     }
 
-    // Update board display
     function updateBoard() {
-        console.log('Updating board display');
         const cells = document.querySelectorAll('.cell');
         cells.forEach(cell => {
             const row = parseInt(cell.dataset.row);
             const col = parseInt(cell.dataset.col);
             cell.classList.remove('black', 'white');
-            if (board[row][col] === 'X') {
-                cell.classList.add('black');
-                console.log('Rendered black piece at [', row, ',', col, ']');
-            } else if (board[row][col] === 'O') {
-                cell.classList.add('white');
-                console.log('Rendered white piece at [', row, ',', col, ']');
-            }
+            if (board[row][col] === 'X') cell.classList.add('black');
+            else if (board[row][col] === 'O') cell.classList.add('white');
         });
     }
 
-    // Reset game
+    spectateButton.addEventListener('click', () => {
+        fetch('/activeGames')
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert(data.message);
+                    return;
+                }
+                activeGamesTableBody.innerHTML = '';
+                data.games.forEach(game => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<td>${game.gameId}</td><td>${game.username}</td><td><button onclick="spectateGame('${game.gameId}', '${game.username}')">观战</button></td>`;
+                    activeGamesTableBody.appendChild(row);
+                });
+                activeGamesModal.style.display = 'block';
+            })
+            .catch(error => console.error('Error listing active games:', error));
+    });
+
+    window.spectateGame = function(gameIdToSpectate, username) {
+        toggleSpectatorMode(true, username, gameIdToSpectate);
+        activeGamesModal.style.display = 'none';
+    };
+
+    exitSpectatorModeButton.addEventListener('click', () => toggleSpectatorMode(false));
+
+    closeActiveGamesModal.addEventListener('click', () => {
+        activeGamesModal.style.display = 'none';
+    });
+
     resetGameButton.addEventListener('click', () => {
-        console.log('Resetting game');
         fetch('/resetGame', { method: 'POST' })
             .then(response => response.json())
             .then(data => {
-                console.log('Reset response:', data);
                 if (data.success) {
                     initBoard();
-                    currentPlayer = 1; // Ensure Black starts first on reset
+                    currentPlayer = 1;
                     gameOver = false;
                     aiMode = false;
                     aiModeStatus.textContent = '关闭';
@@ -134,16 +230,13 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error resetting game:', error));
     });
 
-    // Toggle AI mode
     toggleAIModeButton.addEventListener('click', () => {
-        console.log('Toggling AI mode');
         fetch('/toggleAIMode', { method: 'POST' })
             .then(response => response.json())
             .then(data => {
-                console.log('Toggle AI response:', data);
                 if (data.success) {
                     aiMode = data.aiMode;
-                    aiModeStatus.textText = aiMode ? '开启' : '关闭';
+                    aiModeStatus.textContent = aiMode ? '开启' : '关闭';
                     if (data.aiRow !== undefined && data.aiCol !== undefined) {
                         board[data.aiRow][data.aiCol] = 'O';
                         updateBoard();
@@ -158,17 +251,11 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error toggling AI mode:', error));
     });
 
-    // PVP mode
     pvpModeButton.addEventListener('click', () => {
-        console.log('Switching to PVP mode');
-        if (aiMode) {
-            toggleAIModeButton.click();
-        }
+        if (aiMode) toggleAIModeButton.click();
     });
 
-    // Save game
     saveGameButton.addEventListener('click', () => {
-        console.log('Saving game');
         fetch('/saveGame', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -176,7 +263,6 @@ document.addEventListener('DOMContentLoaded', function() {
         })
             .then(response => response.json())
             .then(data => {
-                console.log('Save game response:', data);
                 if (data.success) {
                     alert('Game saved successfully! Record ID: ' + data.recordId);
                     loadGameButton.click();
@@ -187,16 +273,10 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error saving game:', error));
     });
 
-    // Load game
     loadGameButton.addEventListener('click', () => {
-        console.log('Loading game records');
         fetch('/listGames')
-            .then(response => {
-                console.log('List games response status:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(records => {
-                console.log('Game records:', records);
                 gameRecordsTableBody.innerHTML = '';
                 records.forEach(record => {
                     const row = document.createElement('tr');
@@ -217,9 +297,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error listing games:', error));
     });
 
-    // Load game record
     window.loadGameRecord = function(recordId) {
-        console.log('Loading game record:', recordId);
         fetch('/loadGame', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -227,7 +305,6 @@ document.addEventListener('DOMContentLoaded', function() {
         })
             .then(response => response.json())
             .then(data => {
-                console.log('Load game response:', data);
                 if (data.success) {
                     board = data.board;
                     currentPlayer = data.player;
@@ -236,6 +313,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     aiModeStatus.textContent = aiMode ? '开启' : '关闭';
                     initBoard(board);
                     gameRecordsModal.style.display = 'none';
+                    alert('Game loaded successfully! Record ID: ' + data.recordId);
                 } else {
                     alert(data.message);
                 }
@@ -243,9 +321,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error loading game:', error));
     };
 
-    // Delete game record
     window.deleteGameRecord = function(recordId) {
-        console.log('Deleting game record:', recordId);
         fetch('/deleteGame', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -253,7 +329,6 @@ document.addEventListener('DOMContentLoaded', function() {
         })
             .then(response => response.json())
             .then(data => {
-                console.log('Delete game response:', data);
                 if (data.success) {
                     alert('Game record deleted!');
                     loadGameButton.click();
@@ -264,16 +339,70 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(error => console.error('Error deleting game:', error));
     };
 
-    // Close modal
     closeModalButton.addEventListener('click', () => {
-        console.log('Closing modal');
         gameRecordsModal.style.display = 'none';
     });
 
-    // Initialize board on page load
+    listTasksButton.addEventListener('click', () => {
+        fetch('/listTasks')
+            .then(response => response.json())
+            .then(tasks => {
+                tasksTableBody.innerHTML = '';
+                tasks.forEach(task => {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td>${task.id}</td>
+                        <td>${task.description}</td>
+                        <td>${task.status}</td>
+                        <td>${task.deadline}</td>
+                        <td>
+                            <button onclick="completeTask(${task.id})" ${task.status === 'COMPLETED' ? 'disabled' : ''}>完成</button>
+                        </td>
+                    `;
+                    tasksTableBody.appendChild(row);
+                });
+                tasksModal.style.display = 'block';
+            })
+            .catch(error => console.error('Error listing tasks:', error));
+    });
+
+    window.completeTask = function(taskId) {
+        fetch('/completeTask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId })
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('任务已完成！');
+                    listTasksButton.click();
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(error => console.error('Error completing task:', error));
+    };
+
+    closeTasksModal.addEventListener('click', () => {
+        tasksModal.style.display = 'none';
+    });
+
     try {
         initBoard();
+        if (isAdmin) {
+            console.log('Admin user detected, ensuring board visibility');
+            initBoard(); // 再次调用以确保棋盘加载
+        }
     } catch (error) {
         console.error('Error initializing board:', error);
     }
+
+    // 额外检查：如果棋盘未显示，尝试延迟初始化
+    setTimeout(() => {
+        if (gameBoard.childElementCount !== 225) {
+            console.log('Board not initialized, retrying...');
+            initBoard();
+        }
+    }, 500);
 });

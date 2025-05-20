@@ -2,52 +2,217 @@
 <html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
-    <title>五子棋</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋游戏</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #e6d7b2;
+            margin: 0;
+            padding: 20px;
+        }
+        #gameBoard {
+            display: grid;
+            grid-template-columns: repeat(15, 40px);
+            grid-template-rows: repeat(15, 40px);
+            gap: 0;
+            background: url('https://www.transparenttextures.com/patterns/wood-pattern.png') repeat;
+            width: 600px;
+            height: 600px;
+            margin: 20px auto;
+            border: 5px solid #8B4513;
+            border-radius: 10px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            background: transparent;
+            border: 1px solid #5c4033; /* 确保格线可见 */
+            box-sizing: border-box;
+            position: relative;
+            transition: background-color 0.2s;
+        }
+        .cell:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        .cell.black::before {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #000;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+        }
+        .cell.white::before {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #fff;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+        }
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 20px;
+            width: 80%;
+            max-width: 600px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        #spectatorMessage {
+            display: none;
+            margin: 10px auto;
+            font-weight: bold;
+            color: #d32f2f;
+        }
+        .admin-panel {
+            background-color: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px auto;
+            max-width: 800px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #5c4033;
+            font-family: 'Georgia', serif;
+        }
+    </style>
 </head>
 <body>
-<header>
-    <div th:if="${username != null}">
-        <span>欢迎, <span th:text="${username}"></span> | <a href="/logout">退出</a></span>
+<h1>五子棋游戏</h1>
+<div th:if="${username}">
+    <p>欢迎，<span th:text="${username}"></span>！</p>
+    <div th:if="${isAdmin}">
+        <button onclick="window.location.href='/admin'">进入管理员界面</button>
     </div>
-    <div th:if="${username == null}">
-        <a href="/register">注册</a> | <a href="/login">登录</a>
-    </div>
-</header>
-
-<div class="container">
-    <h1>五子棋</h1>
-    <div class="controls">
-        <button id="resetGame">重置游戏</button>
-        <button id="toggleAIMode">AI模式: <span id="aiModeStatus">关闭</span></button>
-        <button id="pvpMode">双人对战</button>
-        <button id="saveGame" th:disabled="${username == null}">保存游戏</button>
-        <button id="loadGame" th:disabled="${username == null}">加载游戏</button>
-    </div>
-
-    <div id="gameBoard"></div>
-
-    <div id="gameRecordsModal" class="modal">
-        <div class="modal-content">
-            <h2>选择游戏记录</h2>
-            <table id="gameRecordsTable">
-                <thead>
-                <tr>
-                    <th>保存时间</th>
-                    <th>模式</th>
-                    <th>当前玩家</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                </tr>
-                </thead>
-                <tbody></tbody>
-            </table>
-            <button id="closeModal">关闭</button>
-        </div>
+    <button onclick="window.location.href='/logout'">退出</button>
+</div>
+<div th:unless="${username}">
+    <p><a href="/login">登录</a> | <a href="/register">注册</a></p>
+</div>
+<input type="hidden" id="gameId" th:value="${gameId}"/>
+<input type="hidden" id="isAdmin" th:value="${isAdmin}"/>
+<div id="spectatorMessage">
+    您现在正在观战用户 <span id="spectatedUser"></span>
+    <button id="exitSpectatorMode">退出观战</button>
+</div>
+<div id="gameBoard"></div>
+<div>
+    <button id="resetGame">重置游戏</button>
+    <button id="toggleAIMode">切换AI模式 (<span id="aiModeStatus">关闭</span>)</button>
+    <button id="pvpMode">PVP模式</button>
+    <button id="saveGame" th:disabled="${username == null}">保存游戏</button>
+    <button id="loadGame" th:disabled="${username == null}">加载游戏</button>
+    <button id="spectateButton">观战</button>
+    <div th:unless="${isAdmin}">
+        <button id="listTasks" th:disabled="${username == null}">查看任务</button>
     </div>
 </div>
-
-<script src="js/script.js"></script>
+<div id="gameRecordsModal" class="modal">
+    <div class="modal-content">
+        <h2>游戏记录</h2>
+        <table id="gameRecordsTable">
+            <thead>
+            <tr>
+                <th>创建时间</th>
+                <th>模式</th>
+                <th>当前玩家</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="closeModal">关闭</button>
+    </div>
+</div>
+<div id="activeGamesModal" class="modal">
+    <div class="modal-content">
+        <h2>可观战游戏</h2>
+        <table id="activeGamesTable">
+            <thead>
+            <tr>
+                <th>游戏ID</th>
+                <th>玩家</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="closeActiveGamesModal">关闭</button>
+    </div>
+</div>
+<div id="tasksModal" class="modal">
+    <div class="modal-content">
+        <h2>任务列表</h2>
+        <table id="tasksTable">
+            <thead>
+            <tr>
+                <th>任务ID</th>
+                <th>描述</th>
+                <th>状态</th>
+                <th>截止时间</th>
+                <th>操作</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <button id="closeTasksModal">关闭</button>
+    </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.6.1/sockjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script src="/js/script.js"></script>
 </body>
 </html>

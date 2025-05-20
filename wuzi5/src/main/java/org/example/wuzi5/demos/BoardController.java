@@ -2,17 +2,21 @@ package org.example.wuzi5.demos;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.example.wuzi5.demos.entity.GameRecord;
+import org.example.wuzi5.demos.entity.User;
 import org.example.wuzi5.demos.mapper.GameRecordMapper;
 import org.example.wuzi5.demos.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+
 import java.util.*;
 import java.sql.Timestamp;
 
@@ -23,6 +27,9 @@ public class BoardController {
     private boolean aiMode = false;
     private boolean gameOver = false;
 
+    private static final Map<String, Map<String, Object>> activeGames = new HashMap<>();
+    private static final Set<String> activeUsers = new HashSet<>();
+
     @Autowired
     private GameRecordMapper gameRecordMapper;
 
@@ -31,6 +38,9 @@ public class BoardController {
 
     @Autowired
     private RabbitTemplate rabbitTemplate;
+
+    @Autowired
+    private SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/board")
     public String getBoard(Model model, Authentication authentication) {
@@ -47,20 +57,35 @@ public class BoardController {
         model.addAttribute("board", board);
         if (authentication != null && authentication.isAuthenticated()) {
             model.addAttribute("username", authentication.getName());
+            String gameId = UUID.randomUUID().toString();
+            Map<String, Object> gameState = new HashMap<>();
+            gameState.put("board", new ArrayList<>(board));
+            gameState.put("player", player);
+            gameState.put("aiMode", aiMode);
+            gameState.put("gameOver", gameOver);
+            gameState.put("username", authentication.getName());
+            activeGames.put(gameId, gameState);
+            activeUsers.add(authentication.getName());
+            model.addAttribute("gameId", gameId);
+
+            User user = userMapper.findUserByUsername(authentication.getName());
+            boolean isAdmin = (user != null && user.getRole().equals("ADMIN"));
+            model.addAttribute("isAdmin", isAdmin);
         }
         return "index";
     }
 
     @PostMapping("/makeMove")
-    public ResponseEntity<Map<String, Object>> makeMove(@RequestBody Map<String, Integer> request) {
+    public ResponseEntity<Map<String, Object>> makeMove(@RequestBody Map<String, Object> request) {
         if (gameOver) {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "游戏已结束，无法继续落子");
             return ResponseEntity.ok(response);
         }
-        int row = request.get("row");
-        int col = request.get("col");
+        int row = (Integer) request.get("row");
+        int col = (Integer) request.get("col");
+        String gameId = (String) request.get("gameId");
 
         if (board.isEmpty()) {
             int boardSize = 15;
@@ -77,9 +102,7 @@ public class BoardController {
         board.get(row).set(col, piece);
         boolean success = true;
         boolean win = checkWin(board, row, col, player);
-        if (win) {
-            gameOver = true;
-        }
+        if (win) gameOver = true;
 
         Map<String, Object> response = new HashMap<>();
         response.put("success", success);
@@ -94,17 +117,26 @@ public class BoardController {
             int aiRow = getLastAIMoveRow();
             int aiCol = getLastAIMoveCol();
             boolean aiWin = checkWin(board, aiRow, aiCol, 2);
-            if (aiWin) {
-                gameOver = true;
-            }
+            if (aiWin) gameOver = true;
             response.put("player", 1);
             response.put("aiRow", aiRow);
             response.put("aiCol", aiCol);
             response.put("aiWin", aiWin);
         }
 
+        Map<String, Object> gameState = activeGames.get(gameId);
+        if (gameState != null) {
+            gameState.put("board", new ArrayList<>(board));
+            gameState.put("player", player);
+            gameState.put("gameOver", gameOver);
+            gameState.put("aiMode", aiMode);
+            messagingTemplate.convertAndSend("/topic/game/" + gameId, gameState);
+            System.out.println("Broadcasting game state for gameId: " + gameId);
+        }
+
         return ResponseEntity.ok(response);
     }
+
 
     private int lastAIMoveRow;
     private int lastAIMoveCol;
@@ -142,11 +174,11 @@ public class BoardController {
 
     private int evaluatePosition(int row, int col) {
         int score = 0;
-        int filledCount = (int)board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count();
+        int filledCount = (int) board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count();
         int totalCells = board.size() * board.size();
-        float fillRate = (float)filledCount / totalCells;
-        int defenseWeight = (int)(8 + 12 * fillRate);
-        int attackWeight = (int)(3 + 7 * (1 - fillRate));
+        float fillRate = (float) filledCount / totalCells;
+        int defenseWeight = (int) (8 + 12 * fillRate);
+        int attackWeight = (int) (3 + 7 * (1 - fillRate));
 
         board.get(row).set(col, "O");
         int attackScore = evaluateDirection(row, col, 0, 1) * attackWeight +
@@ -162,25 +194,18 @@ public class BoardController {
                 evaluateDirection(row, col, 1, -1) * defenseWeight;
         board.get(row).set(col, "0");
 
-        if (threatScore >= 180000) {
-            score += threatScore * 2.5;
-        } else if (threatScore >= 150000) {
-            score += threatScore * 2.2;
-        } else if (threatScore >= 120000) {
-            score += threatScore * 1.8;
-        } else if (threatScore >= 80000) {
-            score += threatScore * 1.5;
-        } else if (threatScore >= 20000) {
-            score += threatScore * 1.2;
-        } else {
+        if (threatScore >= 180000) score += threatScore * 2.5;
+        else if (threatScore >= 150000) score += threatScore * 2.2;
+        else if (threatScore >= 120000) score += threatScore * 1.8;
+        else if (threatScore >= 80000) score += threatScore * 1.5;
+        else if (threatScore >= 20000) score += threatScore * 1.2;
+        else {
             score += attackScore;
             int centerX = board.size() / 2;
             int centerY = board.size() / 2;
             int distanceToCenter = Math.abs(row - centerX) + Math.abs(col - centerY);
             score += (board.size() - distanceToCenter) * 20;
-            if (evaluateDirection(row, col, 0, 1) >= 8000 || evaluateDirection(row, col, 1, 0) >= 8000) {
-                score += 5000;
-            }
+            if (evaluateDirection(row, col, 0, 1) >= 8000 || evaluateDirection(row, col, 1, 0) >= 8000) score += 5000;
         }
 
         if (attackScore > 120000 && threatScore < 150000) {
@@ -274,46 +299,34 @@ public class BoardController {
 
         count = 0;
         for (int c = Math.max(0, col - 4); c <= Math.min(board.size() - 1, col + 4); c++) {
-            if (board.get(row).get(c).equals(piece)) {
-                count++;
-                if (count == 5) return true;
-            } else {
-                count = 0;
-            }
+            if (board.get(row).get(c).equals(piece)) count++;
+            else count = 0;
+            if (count == 5) return true;
         }
 
         count = 0;
         for (int r = Math.max(0, row - 4); r <= Math.min(board.size() - 1, row + 4); r++) {
-            if (board.get(r).get(col).equals(piece)) {
-                count++;
-                if (count == 5) return true;
-            } else {
-                count = 0;
-            }
+            if (board.get(r).get(col).equals(piece)) count++;
+            else count = 0;
+            if (count == 5) return true;
         }
 
         count = 0;
         for (int i = -4; i <= 4; i++) {
             int r = row + i;
             int c = col + i;
-            if (r >= 0 && r < board.size() && c >= 0 && c < board.size() && board.get(r).get(c).equals(piece)) {
-                count++;
-                if (count == 5) return true;
-            } else {
-                count = 0;
-            }
+            if (r >= 0 && r < board.size() && c >= 0 && c < board.size() && board.get(r).get(c).equals(piece)) count++;
+            else count = 0;
+            if (count == 5) return true;
         }
 
         count = 0;
         for (int i = -4; i <= 4; i++) {
             int r = row + i;
             int c = col - i;
-            if (r >= 0 && r < board.size() && c >= 0 && c < board.size() && board.get(r).get(c).equals(piece)) {
-                count++;
-                if (count == 5) return true;
-            } else {
-                count = 0;
-            }
+            if (r >= 0 && r < board.size() && c >= 0 && c < board.size() && board.get(r).get(c).equals(piece)) count++;
+            else count = 0;
+            if (count == 5) return true;
         }
         return false;
     }
@@ -342,15 +355,12 @@ public class BoardController {
         Map<String, Object> response = new HashMap<>();
         response.put("success", true);
         response.put("aiMode", aiMode);
-
         if (aiMode && player == 2) {
             makeAIMove();
             int aiRow = getLastAIMoveRow();
             int aiCol = getLastAIMoveCol();
             boolean aiWin = checkWin(board, aiRow, aiCol, 2);
-            if (aiWin) {
-                gameOver = true;
-            }
+            if (aiWin) gameOver = true;
             response.put("player", 1);
             response.put("aiRow", aiRow);
             response.put("aiCol", aiCol);
@@ -367,7 +377,6 @@ public class BoardController {
             response.put("message", "请先登录");
             return ResponseEntity.status(401).body(response);
         }
-
         String username = authentication.getName();
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
@@ -386,12 +395,7 @@ public class BoardController {
         }
         boardState.deleteCharAt(boardState.length() - 1);
 
-        String moveHistory = request.get("moveHistory");
-        if (moveHistory == null) {
-            moveHistory = "";
-        }
-
-        System.out.println("Saving game: user_id=" + userId + ", boardState=" + boardState + ", player=" + player + ", gameOver=" + gameOver + ", aiMode=" + aiMode + ", moveHistory=" + moveHistory);
+        String moveHistory = request.get("moveHistory") != null ? request.get("moveHistory") : "";
 
         GameRecord gameRecord = new GameRecord();
         gameRecord.setUserId(userId);
@@ -399,12 +403,9 @@ public class BoardController {
         gameRecord.setCurrentPlayer(player);
         gameRecord.setGameOver(gameOver);
         gameRecord.setAiMode(aiMode);
-        Timestamp createdAt = new Timestamp(System.currentTimeMillis());
-        System.out.println("Setting createdAt to: " + createdAt); // Debug log
-        gameRecord.setCreatedAt(createdAt);
+        gameRecord.setCreatedAt(new Timestamp(System.currentTimeMillis()));
 
         gameRecordMapper.insert(gameRecord);
-        System.out.println("Game saved successfully, recordId=" + gameRecord.getId());
 
         rabbitTemplate.convertAndSend("game-notifications", "Game saved for user: " + username + ", recordId: " + gameRecord.getId());
 
@@ -423,7 +424,6 @@ public class BoardController {
             response.put("message", "请先登录");
             return ResponseEntity.status(401).body(response);
         }
-
         String username = authentication.getName();
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
@@ -442,7 +442,6 @@ public class BoardController {
             return ResponseEntity.ok(response);
         }
 
-        System.out.println("Loading game: user_id=" + userId + ", recordId=" + gameRecord.getId());
         String boardState = gameRecord.getBoardState();
         if (boardState == null) {
             Map<String, Object> response = new HashMap<>();
@@ -461,7 +460,6 @@ public class BoardController {
             }
             board.add(rowList);
         }
-        System.out.println("Board state loaded successfully");
 
         player = gameRecord.getCurrentPlayer();
         gameOver = gameRecord.isGameOver();
@@ -475,6 +473,7 @@ public class BoardController {
         response.put("player", player);
         response.put("gameOver", gameOver);
         response.put("aiMode", aiMode);
+        response.put("recordId", recordId);
         return ResponseEntity.ok(response);
     }
 
@@ -484,7 +483,6 @@ public class BoardController {
         if (authentication == null || !authentication.isAuthenticated()) {
             return ResponseEntity.status(401).body(Collections.emptyList());
         }
-
         String username = authentication.getName();
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
@@ -508,6 +506,7 @@ public class BoardController {
         return ResponseEntity.ok(response);
     }
 
+    @CacheEvict(value = "gameList", key = "#authentication.name")
     @PostMapping("/deleteGame")
     public ResponseEntity<Map<String, Object>> deleteGame(@RequestBody Map<String, String> request, Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
@@ -516,7 +515,6 @@ public class BoardController {
             response.put("message", "请先登录");
             return ResponseEntity.status(401).body(response);
         }
-
         String username = authentication.getName();
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
@@ -536,7 +534,6 @@ public class BoardController {
         }
 
         gameRecordMapper.deleteById(recordId);
-        System.out.println("Game deleted successfully: recordId=" + recordId);
 
         rabbitTemplate.convertAndSend("game-notifications", "Game deleted for user: " + username + ", recordId: " + recordId);
 
@@ -548,23 +545,60 @@ public class BoardController {
     @Scheduled(cron = "0 0 0 * * ?")
     public void cleanOldGameRecords() {
         Timestamp oneMonthAgo = new Timestamp(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
-        gameRecordMapper.delete(
-                new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo)
-        );
-        System.out.println("Cleaned old game records before: " + oneMonthAgo);
+        gameRecordMapper.delete(new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
         rabbitTemplate.convertAndSend("game-notifications", "Cleaned old game records before: " + oneMonthAgo);
     }
 
     private Long getUserIdByUsername(String username) {
         try {
             Long userId = userMapper.findUserIdByUsername(username);
-            if (userId == null) {
-                System.out.println("User not found in users table: " + username);
-            }
+            if (userId == null) System.out.println("User not found in users table: " + username);
             return userId;
         } catch (Exception e) {
             System.out.println("Error fetching user_id for username: " + username);
             return null;
         }
+    }
+
+    @GetMapping("/activeGames")
+    public ResponseEntity<Map<String, Object>> listActiveGames(Authentication authentication) {
+        Map<String, Object> response = new HashMap<>();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            response.put("success", false);
+            response.put("message", "请先登录");
+            return ResponseEntity.status(401).body(response);
+        }
+        String currentUsername = authentication.getName();
+        List<Map<String, Object>> games = new ArrayList<>();
+        Set<String> uniqueUsers = new HashSet<>();
+        for (Map.Entry<String, Map<String, Object>> entry : activeGames.entrySet()) {
+            String username = (String) entry.getValue().get("username");
+            if (username != null && activeUsers.contains(username) && !username.equals(currentUsername) && uniqueUsers.add(username)) {
+                Map<String, Object> gameInfo = new HashMap<>();
+                gameInfo.put("gameId", entry.getKey());
+                gameInfo.put("username", username);
+                games.add(gameInfo);
+            }
+        }
+        if (games.isEmpty()) {
+            response.put("success", false);
+            response.put("message", "当前没有其他用户可供观战");
+            return ResponseEntity.ok(response);
+        }
+        response.put("success", true);
+        response.put("games", games);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/logoutCleanup")
+    public ResponseEntity<Map<String, Object>> logoutCleanup(@RequestBody Map<String, String> request, Authentication authentication) {
+        if (authentication != null && authentication.isAuthenticated()) {
+            String username = authentication.getName();
+            activeUsers.remove(username);
+            activeGames.entrySet().removeIf(entry -> entry.getValue().get("username").equals(username));
+        }
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        return ResponseEntity.ok(response);
     }
 }

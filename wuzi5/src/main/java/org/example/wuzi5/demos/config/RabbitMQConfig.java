@@ -58,4 +58,13 @@ public class RabbitMQConfig {
     public Binding binding(Queue queue, TopicExchange exchange) {
         return BindingBuilder.bind(queue).to(exchange).with(ROUTING_KEY);
     }
+    @Bean
+    public Queue gameNotificationsQueue() {
+        return new Queue("game-notifications", true);
+    }
+
+    @Bean
+    public Queue taskQueue() {
+        return new Queue("task-queue", true);
+    }
 }
