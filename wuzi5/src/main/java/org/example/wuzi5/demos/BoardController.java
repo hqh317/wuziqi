@@ -1,3 +1,4 @@
+
 package org.example.wuzi5.demos;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
@@ -137,7 +138,6 @@ public class BoardController {
         return ResponseEntity.ok(response);
     }
 
-
     private int lastAIMoveRow;
     private int lastAIMoveCol;
 
@@ -153,136 +153,241 @@ public class BoardController {
 
     private int[] findBestMove() {
         int boardSize = board.size();
-        int bestScore = Integer.MIN_VALUE;
         int[] bestMove = new int[]{-1, -1};
+        int bestScore = Integer.MIN_VALUE;
+        int alpha = Integer.MIN_VALUE;
+        int beta = Integer.MAX_VALUE;
+        int depth = board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count() < 10 ? 1 : 2; // Reduce depth early game
+
+        // Check for immediate winning move
         for (int i = 0; i < boardSize; i++) {
             for (int j = 0; j < boardSize; j++) {
                 if (board.get(i).get(j).equals("0")) {
                     board.get(i).set(j, "O");
-                    int score = evaluatePosition(i, j);
-                    board.get(i).set(j, "0");
-                    if (score > bestScore) {
-                        bestScore = score;
-                        bestMove[0] = i;
-                        bestMove[1] = j;
+                    if (checkWin(board, i, j, 2)) {
+                        board.get(i).set(j, "0");
+                        return new int[]{i, j};
                     }
+                    board.get(i).set(j, "0");
                 }
             }
+        }
+
+        // Check for immediate blocking of opponent's win
+        for (int i = 0; i < boardSize; i++) {
+            for (int j = 0; j < boardSize; j++) {
+                if (board.get(i).get(j).equals("0")) {
+                    board.get(i).set(j, "X");
+                    if (checkWin(board, i, j, 1)) {
+                        board.get(i).set(j, "0");
+                        return new int[]{i, j};
+                    }
+                    board.get(i).set(j, "0");
+                }
+            }
+        }
+
+        // Evaluate moves near existing pieces
+        Set<int[]> candidateMoves = getCandidateMoves();
+        for (int[] move : candidateMoves) {
+            int i = move[0];
+            int j = move[1];
+            board.get(i).set(j, "O");
+            int score = minimax(board, depth - 1, false, alpha, beta);
+            board.get(i).set(j, "0");
+            if (score > bestScore) {
+                bestScore = score;
+                bestMove[0] = i;
+                bestMove[1] = j;
+            }
+            alpha = Math.max(alpha, bestScore);
+            if (beta <= alpha) break; // Alpha-beta pruning
+        }
+
+        // Fallback to center if no moves evaluated
+        if (bestMove[0] == -1) {
+            bestMove[0] = boardSize / 2;
+            bestMove[1] = boardSize / 2;
         }
         return bestMove;
     }
 
-    private int evaluatePosition(int row, int col) {
-        int score = 0;
-        int filledCount = (int) board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count();
-        int totalCells = board.size() * board.size();
-        float fillRate = (float) filledCount / totalCells;
-        int defenseWeight = (int) (8 + 12 * fillRate);
-        int attackWeight = (int) (3 + 7 * (1 - fillRate));
+    private Set<int[]> getCandidateMoves() {
+        Set<int[]> candidates = new HashSet<>();
+        int boardSize = board.size();
+        int radius = 2; // Search within 2 cells of existing pieces
 
-        board.get(row).set(col, "O");
-        int attackScore = evaluateDirection(row, col, 0, 1) * attackWeight +
-                evaluateDirection(row, col, 1, 0) * attackWeight +
-                evaluateDirection(row, col, 1, 1) * attackWeight +
-                evaluateDirection(row, col, 1, -1) * attackWeight;
-        board.get(row).set(col, "0");
+        for (int i = 0; i < boardSize; i++) {
+            for (int j = 0; j < boardSize; j++) {
+                if (!board.get(i).get(j).equals("0")) {
+                    for (int di = -radius; di <= radius; di++) {
+                        for (int dj = -radius; dj <= radius; dj++) {
+                            int ni = i + di;
+                            int nj = j + dj;
+                            if (ni >= 0 && ni < boardSize && nj >= 0 && nj < boardSize && board.get(ni).get(nj).equals("0")) {
+                                candidates.add(new int[]{ni, nj});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return candidates;
+    }
 
-        board.get(row).set(col, "X");
-        int threatScore = evaluateDirection(row, col, 0, 1) * defenseWeight +
-                evaluateDirection(row, col, 1, 0) * defenseWeight +
-                evaluateDirection(row, col, 1, 1) * defenseWeight +
-                evaluateDirection(row, col, 1, -1) * defenseWeight;
-        board.get(row).set(col, "0");
-
-        if (threatScore >= 180000) score += threatScore * 2.5;
-        else if (threatScore >= 150000) score += threatScore * 2.2;
-        else if (threatScore >= 120000) score += threatScore * 1.8;
-        else if (threatScore >= 80000) score += threatScore * 1.5;
-        else if (threatScore >= 20000) score += threatScore * 1.2;
-        else {
-            score += attackScore;
-            int centerX = board.size() / 2;
-            int centerY = board.size() / 2;
-            int distanceToCenter = Math.abs(row - centerX) + Math.abs(col - centerY);
-            score += (board.size() - distanceToCenter) * 20;
-            if (evaluateDirection(row, col, 0, 1) >= 8000 || evaluateDirection(row, col, 1, 0) >= 8000) score += 5000;
+    private int minimax(List<List<String>> board, int depth, boolean isMaximizing, int alpha, int beta) {
+        if (depth == 0 || gameOver) {
+            return evaluateBoard();
         }
 
-        if (attackScore > 120000 && threatScore < 150000) {
-            int multiDirAttack = (evaluateDirection(row, col, 0, 1) + evaluateDirection(row, col, 1, 0)) / 2;
-            score += multiDirAttack * (2.0f + 0.5f * fillRate);
+        int boardSize = board.size();
+        Set<int[]> candidateMoves = getCandidateMoves();
+
+        if (isMaximizing) {
+            int maxEval = Integer.MIN_VALUE;
+            for (int[] move : candidateMoves) {
+                int i = move[0];
+                int j = move[1];
+                board.get(i).set(j, "O");
+                if (checkWin(board, i, j, 2)) {
+                    board.get(i).set(j, "0");
+                    return 1000000; // Immediate win
+                }
+                int eval = minimax(board, depth - 1, false, alpha, beta);
+                board.get(i).set(j, "0");
+                maxEval = Math.max(maxEval, eval);
+                alpha = Math.max(alpha, eval);
+                if (beta <= alpha) break;
+            }
+            return maxEval;
+        } else {
+            int minEval = Integer.MAX_VALUE;
+            for (int[] move : candidateMoves) {
+                int i = move[0];
+                int j = move[1];
+                board.get(i).set(j, "X");
+                if (checkWin(board, i, j, 1)) {
+                    board.get(i).set(j, "0");
+                    return -1000000; // Opponent's win
+                }
+                int eval = minimax(board, depth - 1, true, alpha, beta);
+                board.get(i).set(j, "0");
+                minEval = Math.min(minEval, eval);
+                beta = Math.min(beta, eval);
+                if (beta <= alpha) break;
+            }
+            return minEval;
+        }
+    }
+
+    private int evaluateBoard() {
+        int score = 0;
+        int boardSize = board.size();
+        int filledCount = (int) board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count();
+        int totalCells = boardSize * boardSize;
+        float fillRate = (float) filledCount / totalCells;
+        int attackWeight = (int) (10 + 15 * (1 - fillRate));
+        int defenseWeight = (int) (15 + 20 * fillRate);
+
+        // Evaluate only candidate moves
+        Set<int[]> candidateMoves = getCandidateMoves();
+        for (int[] move : candidateMoves) {
+            int i = move[0];
+            int j = move[1];
+            int attackScore = evaluatePosition(i, j, "O");
+            int threatScore = evaluatePosition(i, j, "X");
+            score += attackScore * attackWeight - threatScore * defenseWeight;
+        }
+
+        // Center preference
+        int centerX = boardSize / 2;
+        int centerY = boardSize / 2;
+        for (int i = 0; i < boardSize; i++) {
+            for (int j = 0; j < boardSize; j++) {
+                if (board.get(i).get(j).equals("O")) {
+                    int distanceToCenter = Math.abs(i - centerX) + Math.abs(j - centerY);
+                    score += (boardSize - distanceToCenter) * 50;
+                }
+            }
         }
         return score;
     }
 
-    private int evaluateDirection(int row, int col, int dRow, int dCol) {
-        String piece = board.get(row).get(col);
-        int count = 1;
-        int emptyFront = 0, emptyBack = 0;
-        boolean blockedFront = false, blockedBack = false;
+    private int evaluatePosition(int row, int col, String piece) {
+        int score = 0;
+        int[][] directions = {{0, 1}, {1, 0}, {1, 1}, {1, -1}};
+        board.get(row).set(col, piece);
 
-        for (int i = 1; i <= 4; i++) {
-            int r = row + i * dRow;
-            int c = col + i * dCol;
-            if (r < 0 || r >= board.size() || c < 0 || c >= board.size()) {
-                blockedFront = true;
-                break;
-            }
-            String cell = board.get(r).get(c);
-            if (cell.equals(piece)) count++;
-            else if (cell.equals("0")) emptyFront++;
-            else {
-                blockedFront = true;
-                break;
-            }
-        }
+        for (int[] dir : directions) {
+            int dRow = dir[0];
+            int dCol = dir[1];
+            int count = 1;
+            int emptyFront = 0, emptyBack = 0;
+            boolean blockedFront = false, blockedBack = false;
 
-        for (int i = 1; i <= 4; i++) {
-            int r = row - i * dRow;
-            int c = col - i * dCol;
-            if (r < 0 || r >= board.size() || c < 0 || c >= board.size()) {
-                blockedBack = true;
-                break;
+            // Forward direction
+            for (int i = 1; i <= 4; i++) {
+                int r = row + i * dRow;
+                int c = col + i * dCol;
+                if (r < 0 || r >= board.size() || c < 0 || c >= board.size()) {
+                    blockedFront = true;
+                    break;
+                }
+                String cell = board.get(r).get(c);
+                if (cell.equals(piece)) count++;
+                else if (cell.equals("0")) emptyFront++;
+                else {
+                    blockedFront = true;
+                    break;
+                }
             }
-            String cell = board.get(r).get(c);
-            if (cell.equals(piece)) count++;
-            else if (cell.equals("0")) emptyBack++;
-            else {
-                blockedBack = true;
-                break;
+
+            // Backward direction
+            for (int i = 1; i <= 4; i++) {
+                int r = row - i * dRow;
+                int c = col - i * dCol;
+                if (r < 0 || r >= board.size() || c < 0 || c >= board.size()) {
+                    blockedBack = true;
+                    break;
+                }
+                String cell = board.get(r).get(c);
+                if (cell.equals(piece)) count++;
+                else if (cell.equals("0")) emptyBack++;
+                else {
+                    blockedBack = true;
+                    break;
+                }
+            }
+
+            boolean isLive = !blockedFront && !blockedBack;
+            int totalEmpty = emptyFront + emptyBack;
+            boolean hasSingleBlock = blockedFront ^ blockedBack;
+
+            if (count >= 5) score += 1000000; // Winning line
+            else if (count == 4) {
+                if (isLive && totalEmpty >= 2) score += 500000; // Open four
+                else if (isLive && totalEmpty == 1) score += 200000; // Half-open four
+                else if (hasSingleBlock && totalEmpty >= 1) score += 100000; // Blocked four
+                else score += 50000; // Other four
+            } else if (count == 3) {
+                if (isLive && totalEmpty >= 2) score += 100000; // Open three
+                else if (isLive && totalEmpty == 1) score += 50000; // Half-open three
+                else if (hasSingleBlock && totalEmpty >= 1) score += 20000; // Blocked three
+                else score += 10000; // Other three
+            } else if (count == 2) {
+                if (isLive && totalEmpty >= 2) score += 5000; // Open two
+                else if (isLive && totalEmpty == 1) score += 2000; // Half-open two
+                else if (hasSingleBlock && totalEmpty >= 1) score += 1000; // Blocked two
+                else score += 500; // Other two
+            } else if (count == 1) {
+                int centerX = board.size() / 2;
+                int centerY = board.size() / 2;
+                int distanceToCenter = Math.abs(row - centerX) + Math.abs(col - centerY);
+                score += (board.size() - distanceToCenter) * 10;
             }
         }
-
-        boolean isLive = !blockedFront && !blockedBack;
-        int totalEmpty = emptyFront + emptyBack;
-        boolean hasSingleBlock = blockedFront ^ blockedBack;
-
-        if (count >= 5) return 200000;
-        if (count == 4) {
-            if (isLive && totalEmpty >= 2) return 180000;
-            if (isLive && totalEmpty == 1) return 160000;
-            if (hasSingleBlock && totalEmpty >= 1) return 150000;
-            return 120000;
-        }
-        if (count == 3) {
-            if (isLive && totalEmpty >= 2) return 120000;
-            if (isLive && totalEmpty == 1) return 100000;
-            if (hasSingleBlock && totalEmpty >= 1) return 80000;
-            return 50000;
-        }
-        if (count == 2) {
-            if (isLive && totalEmpty >= 2) return 20000;
-            if (isLive && totalEmpty == 1) return 15000;
-            if (hasSingleBlock && totalEmpty >= 1) return 10000;
-            return 8000;
-        }
-        if (count == 1) {
-            int centerX = board.size() / 2;
-            int centerY = board.size() / 2;
-            int distanceToCenter = Math.abs(row - centerX) + Math.abs(col - centerY);
-            return (board.size() - distanceToCenter) * 5;
-        }
-        return 0;
+        board.get(row).set(col, "0");
+        return score;
     }
 
     private int getLastAIMoveRow() {
@@ -515,7 +620,7 @@ public class BoardController {
             response.put("message", "请先登录");
             return ResponseEntity.status(401).body(response);
         }
-        String username = authentication.getName();
+        String username = authentication.getName();String username = authentication.getName()；
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
             Map<String, Object> response = new HashMap<>();
@@ -543,62 +648,62 @@ public class BoardController {
     }
 
     @Scheduled(cron = "0 0 0 * * ?")
-    public void cleanOldGameRecords() {
-        Timestamp oneMonthAgo = new Timestamp(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
-        gameRecordMapper.delete(new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
+    public   公共 void   无效 cleanOldGameRecords() {
+        Timestamp   时间戳 oneMonthAgo = new   新 Timestamp   时间戳(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
+        gameRecordMapper.delete   删除(new   新 QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
         rabbitTemplate.convertAndSend("game-notifications", "Cleaned old game records before: " + oneMonthAgo);
     }
 
-    private Long getUserIdByUsername(String username) {
-        try {
-            Long userId = userMapper.findUserIdByUsername(username);
-            if (userId == null) System.out.println("User not found in users table: " + username);
-            return userId;
-        } catch (Exception e) {
+    private   私人 Long   长 getUserIdByUsername(String   字符串 username   用户名) {
+        try   试一试 {
+            Long   长 userId   用户标识 = userMapper.findUserIdByUsername(username);
+            if   如果 (userId == null   零) System.out   出.println("User not found in users table: " + username);
+            return   返回 userId;
+        } catch   抓 (Exception e) {
             System.out.println("Error fetching user_id for username: " + username);
-            return null;
+            return   返回 null   零;
         }
     }
 
     @GetMapping("/activeGames")
-    public ResponseEntity<Map<String, Object>> listActiveGames(Authentication authentication) {
-        Map<String, Object> response = new HashMap<>();
-        if (authentication == null || !authentication.isAuthenticated()) {
-            response.put("success", false);
-            response.put("message", "请先登录");
-            return ResponseEntity.status(401).body(response);
+    public   公共 ResponseEntity<Map   地图<String   字符串, Object   对象>> listActiveGames(Authentication   身份验证 authentication   身份验证) {
+        Map   地图<String   字符串, Object   对象> response   响应 = new   新 HashMap<>();
+        if   如果 (authentication == null   零 || !authentication.isAuthenticated()) {
+            response.put("success"   “成功”, false   假);
+            response.put("message"   “消息”, "请先登录");
+            return   返回 ResponseEntity.status   状态(401).body   身体(response);
         }
-        String currentUsername = authentication.getName();
-        List<Map<String, Object>> games = new ArrayList<>();
-        Set<String> uniqueUsers = new HashSet<>();
-        for (Map.Entry<String, Map<String, Object>> entry : activeGames.entrySet()) {
-            String username = (String) entry.getValue().get("username");
-            if (username != null && activeUsers.contains(username) && !username.equals(currentUsername) && uniqueUsers.add(username)) {
-                Map<String, Object> gameInfo = new HashMap<>();
-                gameInfo.put("gameId", entry.getKey());
-                gameInfo.put("username", username);
-                games.add(gameInfo);
+        String   字符串 currentUsername = authentication.getName();
+        List   列表<Map   地图<String   字符串, Object   对象>> games   游戏 = new   新 ArrayList<>();
+        Set   集<String   字符串> uniqueUsers = new   新 HashSet<>();
+        for   为 (Map   地图.Entry<String   字符串, Map   地图<String   字符串, Object   对象>> entry   条目 : activeGames.entrySet()) {
+            String   字符串 username   用户名 = (String   字符串) entry.getValue().get   得到("username"   “用户名”);
+            if   如果 (username != null   零 && activeUsers.contains   包含(username) && !username.equals   =(currentUsername) && uniqueUsers.add   添加(username)) {
+                Map   地图<String   字符串, Object   对象> gameInfo = new   新 HashMap<>();
+                gameInfo.put   把("gameId"   “gameId”, entry.getKey());
+                gameInfo.put   把("username"   “用户名”, username);
+                games.add   添加(gameInfo);
             }
         }
-        if (games.isEmpty()) {
-            response.put("success", false);
-            response.put("message", "当前没有其他用户可供观战");
-            return ResponseEntity.ok(response);
+        if   如果 (games.isEmpty()) {
+            response.put   把("success"   “成功”, false   假);
+            response.put   把("message"   “消息”, "当前没有其他用户可供观战");
+            return   返回 ResponseEntity.ok(response);
         }
-        response.put("success", true);
-        response.put("games", games);
-        return ResponseEntity.ok(response);
+        response.put   把("success"   “成功”, true   真正的);
+        response.put   把("games"   “游戏”, games);
+        return   返回 ResponseEntity.ok(response);
     }
 
     @PostMapping("/logoutCleanup")
-    public ResponseEntity<Map<String, Object>> logoutCleanup(@RequestBody Map<String, String> request, Authentication authentication) {
-        if (authentication != null && authentication.isAuthenticated()) {
-            String username = authentication.getName();
-            activeUsers.remove(username);
-            activeGames.entrySet().removeIf(entry -> entry.getValue().get("username").equals(username));
+    public   公共 ResponseEntity<Map   地图<String   字符串, Object   对象>> logoutCleanup(@RequestBody Map   地图<String   字符串, String   字符串> request, Authentication   身份验证 authentication   身份验证) {
+        if   如果 (authentication != null   零 && authentication.isAuthenticated()) {
+            String   字符串 username   用户名 = authentication.getName();
+            activeUsers.remove   删除(username);
+            activeGames.entrySet().removeIf(entry   条目 -> entry.getValue().get   得到("username"   “用户名”).equals(username));
         }
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        return ResponseEntity.ok(response);
+        Map   地图<String   字符串, Object   对象> response   响应 = new   新 HashMap<>();
+        response.put("success"   “成功”, true   真正的);
+        return   返回 ResponseEntity.ok(response);
     }
 }
