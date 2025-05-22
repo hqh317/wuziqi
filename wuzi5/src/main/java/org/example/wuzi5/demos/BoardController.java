@@ -648,62 +648,62 @@ public class BoardController {
     }
 
     @Scheduled(cron = "0 0 0 * * ?")
-    public   公共 void   无效 cleanOldGameRecords() {
-        Timestamp   时间戳 oneMonthAgo = new   新 Timestamp   时间戳(System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
-        gameRecordMapper.delete   删除(new   新 QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
+    public    void    cleanOldGameRecords() {
+        Timestamp    oneMonthAgo = new  Timestamp  (System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
+        gameRecordMapper.delete   (new   新 QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
         rabbitTemplate.convertAndSend("game-notifications", "Cleaned old game records before: " + oneMonthAgo);
     }
 
-    private   私人 Long   长 getUserIdByUsername(String   字符串 username   用户名) {
-        try   试一试 {
-            Long   长 userId   用户标识 = userMapper.findUserIdByUsername(username);
-            if   如果 (userId == null   零) System.out   出.println("User not found in users table: " + username);
-            return   返回 userId;
-        } catch   抓 (Exception e) {
+    private Long  getUserIdByUsername(String  username  ) {
+        try{
+            Long userId= userMapper.findUserIdByUsername(username);
+            if(userId == null) System.out.println("User not found in users table: " + username);
+            return  userId;
+        } catch(Exception e) {
             System.out.println("Error fetching user_id for username: " + username);
-            return   返回 null   零;
+            return  null;
         }
     }
 
     @GetMapping("/activeGames")
-    public   公共 ResponseEntity<Map   地图<String   字符串, Object   对象>> listActiveGames(Authentication   身份验证 authentication   身份验证) {
-        Map   地图<String   字符串, Object   对象> response   响应 = new   新 HashMap<>();
-        if   如果 (authentication == null   零 || !authentication.isAuthenticated()) {
-            response.put("success"   “成功”, false   假);
-            response.put("message"   “消息”, "请先登录");
-            return   返回 ResponseEntity.status   状态(401).body   身体(response);
+    public    ResponseEntity<Map<String, Object>> listActiveGames(Authentication    authentication   ) {
+        Map   <String , Object> response  = new  HashMap<>();
+        if    (authentication == null|| !authentication.isAuthenticated()) {
+            response.put("success", false);
+            response.put("message", "请先登录");
+            return    ResponseEntity.status   状态(401).body   身体(response);
         }
-        String   字符串 currentUsername = authentication.getName();
-        List   列表<Map   地图<String   字符串, Object   对象>> games   游戏 = new   新 ArrayList<>();
-        Set   集<String   字符串> uniqueUsers = new   新 HashSet<>();
-        for   为 (Map   地图.Entry<String   字符串, Map   地图<String   字符串, Object   对象>> entry   条目 : activeGames.entrySet()) {
-            String   字符串 username   用户名 = (String   字符串) entry.getValue().get   得到("username"   “用户名”);
-            if   如果 (username != null   零 && activeUsers.contains   包含(username) && !username.equals   =(currentUsername) && uniqueUsers.add   添加(username)) {
-                Map   地图<String   字符串, Object   对象> gameInfo = new   新 HashMap<>();
-                gameInfo.put   把("gameId"   “gameId”, entry.getKey());
-                gameInfo.put   把("username"   “用户名”, username);
-                games.add   添加(gameInfo);
+        String  currentUsername = authentication.getName();
+        List <Map<String, Object>> games= new ArrayList<>();
+        Set <String> uniqueUsers = new  HashSet<>();
+        for  (Map.Entry<String, Map <String , Object >> entry : activeGames.entrySet()) {
+            String  username= (String) entry.getValue().get("username" );
+            if(username != null\&& activeUsers.contains   (username) && !username.equals   =(currentUsername) && uniqueUsers.add(username)) {
+                Map   <String   , Object   > gameInfo = new    HashMap<>();
+                gameInfo.put   ("gameId"  , entry.getKey());
+                gameInfo.put   ("username" , username);
+                games.add   (gameInfo);
             }
         }
-        if   如果 (games.isEmpty()) {
-            response.put   把("success"   “成功”, false   假);
-            response.put   把("message"   “消息”, "当前没有其他用户可供观战");
-            return   返回 ResponseEntity.ok(response);
+        if    (games.isEmpty()) {
+            response.put("success"   , false );
+            response.put("message"  , "当前没有其他用户可供观战");
+            return    ResponseEntity.ok(response);
         }
-        response.put   把("success"   “成功”, true   真正的);
-        response.put   把("games"   “游戏”, games);
-        return   返回 ResponseEntity.ok(response);
+        response.put ("success"   , true   );
+        response.put("games"   , games);
+        return  ResponseEntity.ok(response);
     }
 
     @PostMapping("/logoutCleanup")
-    public   公共 ResponseEntity<Map   地图<String   字符串, Object   对象>> logoutCleanup(@RequestBody Map   地图<String   字符串, String   字符串> request, Authentication   身份验证 authentication   身份验证) {
-        if   如果 (authentication != null   零 && authentication.isAuthenticated()) {
-            String   字符串 username   用户名 = authentication.getName();
-            activeUsers.remove   删除(username);
-            activeGames.entrySet().removeIf(entry   条目 -> entry.getValue().get   得到("username"   “用户名”).equals(username));
+    public  ResponseEntity<Map   <String, Object>> logoutCleanup(@RequestBody Map <String , String> request, Authentication  authentication   ) {
+        if (authentication != null    && authentication.isAuthenticated()) {
+            String username = authentication.getName();
+            activeUsers.remove   (username);
+            activeGames.entrySet().removeIf(entry    -> entry.getValue().get   ("username").equals(username));
         }
-        Map   地图<String   字符串, Object   对象> response   响应 = new   新 HashMap<>();
-        response.put("success"   “成功”, true   真正的);
-        return   返回 ResponseEntity.ok(response);
+        Map   <String, Object> response = new  HashMap<>();
+        response.put("success", true);
+        return ResponseEntity.ok(response);
     }
 }
