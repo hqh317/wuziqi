@@ -620,7 +620,8 @@ public class BoardController {
             response.put("message", "请先登录");
             return ResponseEntity.status(401).body(response);
         }
-        String username = authentication.getName();String username = authentication.getName()；
+        String username = authentication.getName();
+      
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
             Map<String, Object> response = new HashMap<>();
@@ -650,7 +651,7 @@ public class BoardController {
     @Scheduled(cron = "0 0 0 * * ?")
     public    void    cleanOldGameRecords() {
         Timestamp    oneMonthAgo = new  Timestamp  (System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
-        gameRecordMapper.delete   (new   新 QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
+        gameRecordMapper.delete   (new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
         rabbitTemplate.convertAndSend("game-notifications", "Cleaned old game records before: " + oneMonthAgo);
     }
 
@@ -671,14 +672,14 @@ public class BoardController {
         if    (authentication == null|| !authentication.isAuthenticated()) {
             response.put("success", false);
             response.put("message", "请先登录");
-            return    ResponseEntity.status   状态(401).body   身体(response);
+            return    ResponseEntity.status (401).body(response);
         }
         String  currentUsername = authentication.getName();
         List <Map<String, Object>> games= new ArrayList<>();
         Set <String> uniqueUsers = new  HashSet<>();
         for  (Map.Entry<String, Map <String , Object >> entry : activeGames.entrySet()) {
             String  username= (String) entry.getValue().get("username" );
-            if(username != null\&& activeUsers.contains   (username) && !username.equals   =(currentUsername) && uniqueUsers.add(username)) {
+            if(username != null&& activeUsers.contains   (username) && !username.equals(currentUsername) && uniqueUsers.add(username)) {
                 Map   <String   , Object   > gameInfo = new    HashMap<>();
                 gameInfo.put   ("gameId"  , entry.getKey());
                 gameInfo.put   ("username" , username);
