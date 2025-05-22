@@ -388,64 +388,64 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(data => {
                 if (data.success) {
                     board = data.board;
-                    currentPlayer = data   数据.player   球员;
-                    gameOver   游戏结束 = data   数据.gameOver   游戏结束;
-                    aiMode = data   数据.aiMode;
-                    if   如果 (elements   元素.aiModeStatus) elements   元素.aiModeStatus.textContent = aiMode ? '开启' : '关闭';
-                    initBoard(board   董事会);
-                    if   如果 (elements   元素.gameRecordsModal) elements   元素.gameRecordsModal.style   风格.display   显示 = 'none'   “没有”;
-                    alert   警报('Game loaded successfully! Record ID: ' + data   数据.recordId);
-                } else   其他 {
-                    alert   警报(data   数据.message   消息);
+                    currentPlayer = data.player;
+                    gameOver = data.gameOver;
+                    aiMode = data.aiMode;
+                    if (elements.aiModeStatus) elements.aiModeStatus.textContent = aiMode ? '开启' : '关闭';
+                    initBoard(board);
+                    if (elements.gameRecordsModal) elements.gameRecordsModal.style.display = 'none';
+                    alert('Game loaded successfully! Record ID: ' + data.recordId);
+                } else {
+                    alert(data.message);
                 }
             })
-            .catch   抓(error   错误 => console   控制台.error   错误('Error loading game:', error   错误));
+            .catch(error => console.error('Error loading game:', error));
     };
 
-    window   窗口.deleteGameRecord = function   函数(recordId) {
-        fetch   获取('/deleteGame', {
-            method   方法: 'POST'   “职位”,
-            headers   头: { 'Content-Type'   “内容类型”: 'application/json'   “application / json” },
-            body   身体: JSON.stringify({ recordId })
+    window.deleteGameRecord = function(recordId) {
+        fetch('/deleteGame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recordId })
         })
-            .then   然后(response   响应 => response   响应.json())
-            .then   然后(data   数据 => {
-                if   如果 (data   数据.success   成功) {
-                    alert   警报('Game record deleted!');
-                    if   如果 (elements   元素.loadGameButton) elements   元素.loadGameButton.click   点击();
-                } else   其他 {
-                    alert   警报(data   数据.message   消息);
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Game record deleted!');
+                    if (elements.loadGameButton) elements.loadGameButton.click();
+                } else {
+                    alert(data.message);
                 }
             })
-            .catch   抓(error   错误 => console   控制台.error   错误('Error deleting game:', error   错误));
+            .catch(error => console.error('Error deleting game:', error));
     };
 
-    window   窗口.completeTask = function   函数(taskId) {
-        fetch   获取('/completeTask', {
-            method   方法: 'POST'   “职位”,
-            headers   头: { 'Content-Type'   “内容类型”: 'application/json'   “application / json” },
-            body   身体: JSON.stringify({ taskId })
+    window.completeTask = function(taskId) {
+        fetch('/completeTask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ taskId })
         })
-            .then   然后(response   响应 => response   响应.json())
-            .then   然后(data   数据 => {
-                if   如果 (data   数据.success   成功) {
-                    alert   警报('任务已完成！');
-                    if   如果 (elements   元素.listTasksButton) elements   元素.listTasksButton.click   点击();
-                } else   其他 {
-                    alert   警报(data   数据.message   消息);
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('任务已完成！');
+                    if (elements.listTasksButton) elements.listTasksButton.click();
+                } else {
+                    alert(data.message);
                 }
             })
-            .catch   抓(error   错误 => console   控制台.error   错误('Error completing task:', error   错误));
+            .catch(error => console.error('Error completing task:', error));
     };
 
-    try   试一试 {
-        initBoard(window   窗口.initialBoard); // Initialize with server-provided board
-        if   如果 (isAdmin) {
-            console   控制台.log   日志('Admin user detected, re-initializing with server board');
-            initBoard(window   窗口.initialBoard); // Ensure admin sees the board
+    try {
+        initBoard(window.initialBoard); // Initialize with server-provided board
+        if (isAdmin) {
+            console.log('Admin user detected, re-initializing with server board');
+            initBoard(window.initialBoard); // Ensure admin sees the board
         }
-    } catch   抓 (error) {
-        console   控制台.error   错误('Error initializing board:'初始化电路板错误, error   错误);
+    } catch (error) {
+        console.error('Error initializing board:', error);
         initBoard(); // Fallback to default board
     }
 });
