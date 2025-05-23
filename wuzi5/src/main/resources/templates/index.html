@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.w3.org/1999/xhtml">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -136,7 +136,9 @@
     <div th:if="${isAdmin}">
         <button onclick="window.location.href='/admin'">进入管理员界面</button>
     </div>
-    <button onclick="window.location.href='/logout'">退出</button>
+    <div sec:authorize="isAuthenticated()">
+        <a href="/logout" onclick="handleLogout(event)">退出登录</a>
+    </div>
 </div>
 <div th:unless="${username}">
     <p><a href="/login">登录</a> | <a href="/register">注册</a></p>

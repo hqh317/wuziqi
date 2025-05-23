@@ -43,7 +43,7 @@ public class BoardController {
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
 
-    @GetMapping("/board")
+    @GetMapping("/board")//初始化棋盘
     public String getBoard(Model model, Authentication authentication) {
         int boardSize = 15;
         board = new ArrayList<>();
@@ -158,7 +158,6 @@ public class BoardController {
         int alpha = Integer.MIN_VALUE;
         int beta = Integer.MAX_VALUE;
         int depth = board.stream().flatMap(List::stream).filter(cell -> !cell.equals("0")).count() < 10 ? 1 : 2; // Reduce depth early game
-
         // Check for immediate winning move
         for (int i = 0; i < boardSize; i++) {
             for (int j = 0; j < boardSize; j++) {
@@ -172,7 +171,6 @@ public class BoardController {
                 }
             }
         }
-
         // Check for immediate blocking of opponent's win
         for (int i = 0; i < boardSize; i++) {
             for (int j = 0; j < boardSize; j++) {
@@ -186,7 +184,6 @@ public class BoardController {
                 }
             }
         }
-
         // Evaluate moves near existing pieces
         Set<int[]> candidateMoves = getCandidateMoves();
         for (int[] move : candidateMoves) {
@@ -203,7 +200,6 @@ public class BoardController {
             alpha = Math.max(alpha, bestScore);
             if (beta <= alpha) break; // Alpha-beta pruning
         }
-
         // Fallback to center if no moves evaluated
         if (bestMove[0] == -1) {
             bestMove[0] = boardSize / 2;
@@ -234,7 +230,6 @@ public class BoardController {
         }
         return candidates;
     }
-
     private int minimax(List<List<String>> board, int depth, boolean isMaximizing, int alpha, int beta) {
         if (depth == 0 || gameOver) {
             return evaluateBoard();
@@ -621,7 +616,7 @@ public class BoardController {
             return ResponseEntity.status(401).body(response);
         }
         String username = authentication.getName();
-      
+
         Long userId = getUserIdByUsername(username);
         if (userId == null) {
             Map<String, Object> response = new HashMap<>();
@@ -648,11 +643,13 @@ public class BoardController {
         return ResponseEntity.ok(response);
     }
 
-    @Scheduled(cron = "0 0 0 * * ?")
-    public    void    cleanOldGameRecords() {
-        Timestamp    oneMonthAgo = new  Timestamp  (System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
-        gameRecordMapper.delete   (new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
+    @Scheduled(cron = "0 * * * * ?")
+    public  void  cleanOldGameRecords() {
+        Timestamp oneMonthAgo = new  Timestamp  (System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000);
+        gameRecordMapper.delete(new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
+        int deletedCount = gameRecordMapper.delete(new QueryWrapper<GameRecord>().lt("created_at", oneMonthAgo));
         rabbitTemplate.convertAndSend("game-notifications", "Cleaned old game records before: " + oneMonthAgo);
+        System.out.println("删除了 "+deletedCount+" 条旧游戏数据");
     }
 
     private Long  getUserIdByUsername(String  username  ) {
@@ -667,44 +664,39 @@ public class BoardController {
     }
 
     @GetMapping("/activeGames")
-    public    ResponseEntity<Map<String, Object>> listActiveGames(Authentication    authentication   ) {
-        Map   <String , Object> response  = new  HashMap<>();
-        if    (authentication == null|| !authentication.isAuthenticated()) {
+    public  ResponseEntity<Map<String, Object>> listActiveGames(Authentication    authentication   ) {
+        Map<String , Object> response  = new  HashMap<>();
+        if(authentication == null|| !authentication.isAuthenticated()) {
             response.put("success", false);
             response.put("message", "请先登录");
-            return    ResponseEntity.status (401).body(response);
+            return ResponseEntity.status (401).body(response);
         }
         String  currentUsername = authentication.getName();
         List <Map<String, Object>> games= new ArrayList<>();
         Set <String> uniqueUsers = new  HashSet<>();
-        for  (Map.Entry<String, Map <String , Object >> entry : activeGames.entrySet()) {
-            String  username= (String) entry.getValue().get("username" );
-            if(username != null&& activeUsers.contains   (username) && !username.equals(currentUsername) && uniqueUsers.add(username)) {
-                Map   <String   , Object   > gameInfo = new    HashMap<>();
-                gameInfo.put   ("gameId"  , entry.getKey());
-                gameInfo.put   ("username" , username);
-                games.add   (gameInfo);
+        for (Map.Entry<String, Map <String,Object >>entry : activeGames.entrySet()) {
+            String username= (String) entry.getValue().get("username" );
+            if(username != null&& activeUsers.contains(username) && !username.equals(currentUsername) && uniqueUsers.add(username)) {
+                Map<String,Object> gameInfo=new HashMap<>();
+                gameInfo.put("gameId"  , entry.getKey());
+                gameInfo.put("username" , username);
+                games.add(gameInfo);
             }
         }
         if    (games.isEmpty()) {
-            response.put("success"   , false );
-            response.put("message"  , "当前没有其他用户可供观战");
+            response.put("success", false );
+            response.put("message", "当前没有其他用户可供观战");
             return    ResponseEntity.ok(response);
         }
-        response.put ("success"   , true   );
-        response.put("games"   , games);
+        response.put ("success", true);
+        response.put("games" , games);
         return  ResponseEntity.ok(response);
     }
 
-    @PostMapping("/logoutCleanup")
-    public  ResponseEntity<Map   <String, Object>> logoutCleanup(@RequestBody Map <String , String> request, Authentication  authentication   ) {
-        if (authentication != null    && authentication.isAuthenticated()) {
-            String username = authentication.getName();
-            activeUsers.remove   (username);
-            activeGames.entrySet().removeIf(entry    -> entry.getValue().get   ("username").equals(username));
+    public void logoutCleanup(String username) {
+        if (username != null) {
+            activeUsers.remove(username);
+            activeGames.entrySet().removeIf(entry -> entry.getValue().get("username").equals(username));
         }
-        Map   <String, Object> response = new  HashMap<>();
-        response.put("success", true);
-        return ResponseEntity.ok(response);
     }
 }

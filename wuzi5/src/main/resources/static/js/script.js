@@ -372,6 +372,24 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (board[row][col] === 'O') cell.classList.add('white');
         });
     }
+    function handleLogout(event) {
+        event.preventDefault();
+        fetch('/logout', { method: 'POST' })
+            .then(() => {
+                // 重置前端状态
+                board = null;
+                currentPlayer = 1;
+                gameOver = false;
+                aiMode = false;
+                spectatedGameId = null;
+                if (stompClient) {
+                    stompClient.disconnect();
+                    stompClient = null;
+                }
+                window.location.href = '/login';
+            })
+            .catch(error => console.error('Error during logout:', error));
+    }
 
     window.spectateGame = function(gameIdToSpectate, username) {
         toggleSpectatorMode(true, username, gameIdToSpectate);

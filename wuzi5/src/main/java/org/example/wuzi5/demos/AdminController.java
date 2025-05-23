@@ -7,6 +7,8 @@ import org.example.wuzi5.demos.mapper.TaskMapper;
 import org.example.wuzi5.demos.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
@@ -77,6 +79,7 @@ public class AdminController {
     }
 
     @PostMapping("/createTask")
+    @CacheEvict(value = "allTasks", allEntries = true)
     public ResponseEntity<Map<String, Object>> createTask(@RequestBody Map<String, String> request) {
         Map<String, Object> response = new HashMap<>();
         String description = request.get("description");
@@ -111,19 +114,31 @@ public class AdminController {
 
 
     @GetMapping("/allTasks")
+    @Cacheable(value = "allTasks")
     public ResponseEntity<List<Map<String, Object>>> listAllTasks() {
-        List<Task> tasks = taskMapper.selectList(null);
-        List<Map<String, Object>> response = new ArrayList<>();
-        for (Task task : tasks) {
-            Map<String, Object> taskData = new HashMap<>();
-            taskData.put("id", task.getId());
-            taskData.put("description", task.getDescription());
-            taskData.put("username", userMapper.selectById(task.getUserId()).getUsername());
-            taskData.put("status", task.getStatus());
-            taskData.put("deadline", task.getDeadline().toString());
-            response.add(taskData);
+        try {
+            List<Task> tasks = taskMapper.selectList(null);
+            if (tasks == null) {
+                tasks = new ArrayList<>();
+                System.out.println("Warning: taskMapper.selectList returned null in /allTasks endpoint");
+            }
+            List<Map<String, Object>> response = new ArrayList<>();
+            for (Task task : tasks) {
+                Map<String, Object> taskData = new HashMap<>();
+                taskData.put("id", task.getId());
+                taskData.put("description", task.getDescription());
+                User user = userMapper.selectById(task.getUserId());
+                taskData.put("username", user != null ? user.getUsername() : "Unknown");
+                taskData.put("status", task.getStatus());
+                taskData.put("deadline", task.getDeadline().toString());
+                response.add(taskData);
+            }
+            System.out.println("Fetched " + response.size() + " tasks for /allTasks");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            System.out.println("Error in /allTasks endpoint: " + e.getMessage());
+            return ResponseEntity.status(500).body(Collections.emptyList());
         }
-        return ResponseEntity.ok(response);
     }
 
 

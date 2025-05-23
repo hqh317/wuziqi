@@ -3,10 +3,12 @@ package org.example.wuzi5.demos;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.example.wuzi5.demos.entity.Task;
 import org.example.wuzi5.demos.entity.User;
+import org.springframework.cache.annotation.CacheEvict;
 import org.example.wuzi5.demos.mapper.TaskMapper;
 import org.example.wuzi5.demos.mapper.UserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
@@ -29,6 +31,7 @@ public class TaskController {
 
     // List tasks for the current user
     @GetMapping("/listTasks")
+    @Cacheable(value = "userTasks", key = "#authentication.name")
     public ResponseEntity<List<Map<String, Object>>> listTasks(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             return ResponseEntity.status(401).body(Collections.emptyList());
@@ -59,6 +62,7 @@ public class TaskController {
 
     // Mark a task as completed
     @PostMapping("/completeTask")
+    @CacheEvict(value = "userTasks", key = "#authentication.name")
     public ResponseEntity<Map<String, Object>> completeTask(@RequestBody Map<String, String> request, Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated()) {
             Map<String, Object> response = new HashMap<>();
@@ -103,7 +107,9 @@ public class TaskController {
         return ResponseEntity.ok(response);
     }
 
-    private Long getUserIdByUsername(String username) {
+
+    @Cacheable(value = "userIds", key = "#username")
+    public Long getUserIdByUsername(String username) {
         try {
             Long userId = userMapper.findUserIdByUsername(username);
             if (userId == null) {
